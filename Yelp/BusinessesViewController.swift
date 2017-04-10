@@ -16,6 +16,10 @@ class BusinessesViewController: UIViewController, UITableViewDataSource, UITable
     
     var businesses: [Business]!
     
+    var isMoreDataLoading = false
+    var loadingMoreView: InfiniteScrollActivityView?
+    var savedFilter: [String : AnyObject]?
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         
@@ -32,20 +36,18 @@ class BusinessesViewController: UIViewController, UITableViewDataSource, UITable
         searchBar.delegate = self
         searchBar.placeholder = "Restaurants"
         
+        // infinite scroll loading indicator
+        let frame = CGRect(x: 0, y: tableView.contentSize.height, width: tableView.bounds.size.width, height: InfiniteScrollActivityView.defaultHeight)
+        loadingMoreView = InfiniteScrollActivityView(frame: frame)
+        loadingMoreView!.isHidden = true
+        tableView.addSubview(loadingMoreView!)
+        
+        var insets = tableView.contentInset
+        insets.bottom += InfiniteScrollActivityView.defaultHeight
+        tableView.contentInset = insets
+        
         // Yelp search
         searchBusiness("Thai")
-        
-        /* Example of Yelp search with more search options specified
-         Business.searchWithTerm("Restaurants", sort: .Distance, categories: ["asianfusion", "burgers"], deals: true) { (businesses: [Business]!, error: NSError!) -> Void in
-         self.businesses = businesses
-         
-         for business in businesses {
-         print(business.name!)
-         print(business.address!)
-         }
-         }
-         */
-        
     }
     
     func searchBusiness(_ term: String) {
@@ -81,11 +83,59 @@ class BusinessesViewController: UIViewController, UITableViewDataSource, UITable
         searchBusiness(searchText)
     }
     
-    func searchBarTextDidEndEditing(_ searchBar: UISearchBar) {
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
         searchBar.resignFirstResponder()
     }
     
-     // MARK: - Navigation
+    // MARK: UISrollView
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        if !isMoreDataLoading {
+            let scrollContentHeight = tableView.contentSize.height
+            let scrollOffsetThreshold = scrollContentHeight - tableView.bounds.height
+            if tableView.contentOffset.y > scrollOffsetThreshold {
+                if tableView.isDragging {
+                    isMoreDataLoading = true
+                    
+                    let frame = CGRect(x: 0, y: tableView.contentSize.height, width: tableView.bounds.size.width, height: InfiniteScrollActivityView.defaultHeight)
+                    loadingMoreView!.frame = frame
+                    loadingMoreView!.startAnimating()
+                    
+                    loadMoreData()
+                    print("loadMoreData")
+                } else {
+                    print("here!!!")
+                }
+            }
+        }
+    }
+    
+    func loadMoreData() {
+        if let filter = savedFilter {
+            let offer = filter["offer"] as? Bool
+            let categories = filter["category"] as? [String]
+            let sortBy = filter["sortBy"] as? YelpSortMode
+            savedFilter = filter
+            Business.searchWithTerm(term: "Restaurant", sort: sortBy, categories: categories, deals: offer, offset: businesses.count) { (businesses: [Business]?, error:Error?) in
+                self.isMoreDataLoading = false
+                
+                self.loadingMoreView!.stopAnimating()
+                
+                self.businesses! += businesses!
+                self.tableView.reloadData()
+            }
+        } else {
+            Business.searchWithTerm(term: "Thai", offset: businesses.count) { (businesses: [Business]?, error: Error?) in
+                self.isMoreDataLoading = false
+                
+                self.loadingMoreView!.stopAnimating()
+                
+                self.businesses! += businesses!
+                self.tableView.reloadData()
+            }
+        }
+    }
+    
+    // MARK: - Navigation
      
     override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
         let vc = segue.destination as! UINavigationController
@@ -94,11 +144,14 @@ class BusinessesViewController: UIViewController, UITableViewDataSource, UITable
     }
     
     // MARK: FilterViewController
+    
     func filterViewController(filterViewController: FilterViewController, filter: [String : AnyObject]) {
-        print(filter)
+        tableView.contentOffset = CGPoint(x: 0, y: 0)
+        
         let offer = filter["offer"] as? Bool
         let categories = filter["category"] as? [String]
         let sortBy = filter["sortBy"] as? YelpSortMode
+        savedFilter = filter
         Business.searchWithTerm(term: "Restaurant", sort: sortBy, categories: categories, deals: offer) { (businesses: [Business]?, error:Error?) in
             self.businesses = businesses
             self.tableView.reloadData()
